@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -30,9 +31,7 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-var conns = []*websocket.Conn{}
-
-func serveWs(chatServer ChatServerInterface, w http.ResponseWriter, r *http.Request, logger LoggerInterface) {
+func serveWs(chatServer ChatServerInterface, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
@@ -44,8 +43,13 @@ func serveWs(chatServer ChatServerInterface, w http.ResponseWriter, r *http.Requ
 	userName := fmt.Sprintf("randomUser%d", rand.Intn(100))
 	client := NewClient(chatServer, conn, userName)
 
-	// create new channel
-	channel := NewChannel(logger)
+	channelId, _ := uuid.Parse("5e306e54-05b8-498d-8678-cba88822b42d")
+	channel := chatServer.ChannelById(channelId)
+
+	if channel == nil {
+		channel = chatServer.NewChannel()
+		chatServer.Logger().Debug("connected to new channel")
+	}
 
 	// connect user to channel
 	channel.Connect(*client)
@@ -58,6 +62,7 @@ func serveWs(chatServer ChatServerInterface, w http.ResponseWriter, r *http.Requ
 		}
 
 		for _, client := range channel.clients {
+			chatServer.Logger().Debug(fmt.Sprintf("msg: %s", p))
 			if err := client.ws.WriteMessage(messageType, p); err != nil {
 				log.Println(err)
 
@@ -72,12 +77,11 @@ func main() {
 	log.SetFlags(0)
 
 	customLogger := NewCustomLogger()
-
-	chatServer := NewChatServer()
+	chatServer := NewChatServer(customLogger)
 
 	http.HandleFunc("/", serveHome)
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		serveWs(chatServer, w, r, customLogger)
+		serveWs(chatServer, w, r)
 	})
 
 	err := http.ListenAndServe(*addr, nil)
