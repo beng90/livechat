@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -31,7 +32,7 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-func serveWs(chatServer ChatServerInterface, w http.ResponseWriter, r *http.Request) {
+func serveWs(chatServer *ChatServer, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
@@ -55,29 +56,34 @@ func serveWs(chatServer ChatServerInterface, w http.ResponseWriter, r *http.Requ
 	channel.Connect(*client)
 
 	for {
-		messageType, p, err := conn.ReadMessage()
+		_, p, err := conn.ReadMessage()
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
-		for _, client := range channel.clients {
-			chatServer.Logger().Debug(fmt.Sprintf("msg: %s", p))
-			if err := client.ws.WriteMessage(messageType, p); err != nil {
-				log.Println(err)
+		chatServer.Logger().Debug(fmt.Sprintf("msg: %s", p))
 
-				return
-			}
+		var message Message
+		if err := json.Unmarshal(p, &message); err != nil {
+			log.Println("error", err)
 		}
+
+		if message.ChannelId == nil {
+			chatServer.logger.Error("missing channel id")
+		}
+
+		chatServer.broadcast <- message
 	}
 }
 
 func main() {
 	flag.Parse()
-	log.SetFlags(0)
 
 	customLogger := NewCustomLogger()
 	chatServer := NewChatServer(customLogger)
+
+	go chatServer.Run()
 
 	http.HandleFunc("/", serveHome)
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {

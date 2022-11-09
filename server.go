@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 )
@@ -14,18 +15,14 @@ type Channel struct {
 }
 
 func NewChannel(logger LoggerInterface) *Channel {
-	hardUuid, _ := uuid.Parse("5e306e54-05b8-498d-8678-cba88822b42d")
 	return &Channel{
-		//id:      uuid.New(),
-		id:      hardUuid,
+		id:      uuid.New(),
 		clients: nil,
 		logger:  logger,
 	}
 }
 
 func (c *Channel) Connect(client Client) {
-	fmt.Println("current clients", c.clients)
-
 	c.clients = append(c.clients, client)
 
 	c.logger.Debug(fmt.Sprintf("New client connected: %s, channel: %s", client.userName, c.id))
@@ -43,24 +40,49 @@ type channels map[uuid.UUID]*Channel
 type ChatServer struct {
 	channels channels
 
-	broadcast chan []byte
+	broadcast chan Message
 
 	logger LoggerInterface
 
-	// Register requests from the clients.
 	register chan *Client
-
-	// Unregister requests from clients.
-	unregister chan *Client
 }
 
 func NewChatServer(logger LoggerInterface) *ChatServer {
 	return &ChatServer{
-		channels:   make(channels),
-		broadcast:  make(chan []byte),
-		logger:     logger,
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
+		channels:  make(channels),
+		broadcast: make(chan Message),
+		logger:    logger,
+		register:  make(chan *Client),
+	}
+}
+
+func (s *ChatServer) Run() {
+	for {
+		select {
+		case message := <-s.broadcast:
+			if message.ChannelId == nil {
+				s.logger.Error("missing channel id")
+			}
+
+			switch message.Action {
+			case "join":
+				fmt.Println("chUuid", message.ChannelId)
+			case "send":
+				ch := s.ChannelById(*message.ChannelId)
+				if ch == nil {
+					s.logger.Error("channel does not exist")
+					break
+				}
+
+				for _, client := range ch.clients {
+					if err := client.conn.WriteMessage(1, []byte(message.Content)); err != nil {
+						log.Println(err)
+
+						return
+					}
+				}
+			}
+		}
 	}
 }
 
