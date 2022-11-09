@@ -69,6 +69,13 @@ func serveWs(chatServer *ChatServer, w http.ResponseWriter, r *http.Request) {
 		case "createChannel":
 			channel := chatServer.NewChannel()
 			chatServer.Logger().Debug("created new channel", channel.id)
+
+			resp := fmt.Sprintf("{\"action\":\"joinChannel\",\"channelId\":\"%s\"}", channel.id.String())
+			if err := client.conn.WriteMessage(1, []byte(resp)); err != nil {
+				log.Println(err)
+
+				return
+			}
 		case "joinChannel":
 			if message.ChannelId == nil {
 				chatServer.logger.Error("missing channel id")
@@ -81,6 +88,12 @@ func serveWs(chatServer *ChatServer, w http.ResponseWriter, r *http.Request) {
 
 			// connect user to channel
 			channel.Connect(*client)
+
+			if err := client.conn.WriteMessage(1, []byte("joined to channel")); err != nil {
+				log.Println(err)
+
+				return
+			}
 		case "send":
 			if message.ChannelId == nil {
 				chatServer.logger.Error("missing channel id")

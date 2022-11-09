@@ -22,7 +22,6 @@ func NewChannel(logger LoggerInterface) *Channel {
 }
 
 func (c *Channel) HasClient(userId uuid.UUID) bool {
-	c.logger.Debug("current clients", c.clients)
 	if _, ok := c.clients[userId]; ok {
 		return true
 	}
@@ -73,7 +72,15 @@ func (s *ChatServer) Run() {
 
 			ch := s.ChannelById(*message.ChannelId)
 			if ch == nil {
-				s.logger.Error("channel does not exist")
+				resp := "channel does not exist"
+				s.logger.Error(resp)
+
+				if err := message.Client.conn.WriteMessage(1, []byte(resp)); err != nil {
+					log.Println(err)
+
+					return
+				}
+
 				break
 			}
 
