@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/google/uuid"
@@ -9,7 +8,7 @@ import (
 
 type Channel struct {
 	id      uuid.UUID
-	clients []Client
+	clients map[uuid.UUID]Client
 
 	logger LoggerInterface
 }
@@ -17,15 +16,23 @@ type Channel struct {
 func NewChannel(logger LoggerInterface) *Channel {
 	return &Channel{
 		id:      uuid.New(),
-		clients: nil,
+		clients: make(map[uuid.UUID]Client),
 		logger:  logger,
 	}
 }
 
-func (c *Channel) Connect(client Client) {
-	c.clients = append(c.clients, client)
+func (c *Channel) HasClient(userId uuid.UUID) bool {
+	c.logger.Debug("current clients", c.clients)
+	if _, ok := c.clients[userId]; ok {
+		return true
+	}
 
-	c.logger.Debug(fmt.Sprintf("New client connected: %s, channel: %s", client.userName, c.id))
+	return false
+}
+func (c *Channel) Connect(client Client) {
+	c.clients[client.id] = client
+
+	//c.logger.Debug(fmt.Sprintf("New client connected: %s, channel: %s", client.userName, c.id))
 }
 
 type ChatServerInterface interface {
@@ -64,22 +71,29 @@ func (s *ChatServer) Run() {
 				s.logger.Error("missing channel id")
 			}
 
-			switch message.Action {
-			case "join":
-				fmt.Println("chUuid", message.ChannelId)
-			case "send":
-				ch := s.ChannelById(*message.ChannelId)
-				if ch == nil {
-					s.logger.Error("channel does not exist")
-					break
+			ch := s.ChannelById(*message.ChannelId)
+			if ch == nil {
+				s.logger.Error("channel does not exist")
+				break
+			}
+
+			// check if user is member of this chat
+			if !ch.HasClient(message.Client.id) {
+				notification := "client is not a member of channel"
+				s.logger.Error(notification)
+
+				if err := message.Client.conn.WriteMessage(1, []byte(notification)); err != nil {
+					log.Println(err)
+
+					return
 				}
+			}
 
-				for _, client := range ch.clients {
-					if err := client.conn.WriteMessage(1, []byte(message.Content)); err != nil {
-						log.Println(err)
+			for _, client := range ch.clients {
+				if err := client.conn.WriteMessage(1, []byte(message.Content)); err != nil {
+					log.Println(err)
 
-						return
-					}
+					return
 				}
 			}
 		}
@@ -91,6 +105,8 @@ func (s *ChatServer) Connect(channel Channel, client Client) {
 }
 
 func (s *ChatServer) ChannelById(id uuid.UUID) *Channel {
+	s.logger.Debug("current channels", s.channels)
+
 	if ch, ok := s.channels[id]; ok {
 		return ch
 	}

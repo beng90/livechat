@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"net/http"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -44,17 +43,6 @@ func serveWs(chatServer *ChatServer, w http.ResponseWriter, r *http.Request) {
 	userName := fmt.Sprintf("randomUser%d", rand.Intn(100))
 	client := NewClient(chatServer, conn, userName)
 
-	channelId, _ := uuid.Parse("5e306e54-05b8-498d-8678-cba88822b42d")
-	channel := chatServer.ChannelById(channelId)
-
-	if channel == nil {
-		channel = chatServer.NewChannel()
-		chatServer.Logger().Debug("connected to new channel")
-	}
-
-	// connect user to channel
-	channel.Connect(*client)
-
 	for {
 		_, p, err := conn.ReadMessage()
 		if err != nil {
@@ -69,11 +57,37 @@ func serveWs(chatServer *ChatServer, w http.ResponseWriter, r *http.Request) {
 			log.Println("error", err)
 		}
 
-		if message.ChannelId == nil {
-			chatServer.logger.Error("missing channel id")
+		if client == nil {
+			chatServer.logger.Error("no client found")
+
+			return
 		}
 
-		chatServer.broadcast <- message
+		message.Client = client
+
+		switch message.Action {
+		case "createChannel":
+			channel := chatServer.NewChannel()
+			chatServer.Logger().Debug("created new channel", channel.id)
+		case "joinChannel":
+			if message.ChannelId == nil {
+				chatServer.logger.Error("missing channel id")
+			}
+
+			channel := chatServer.ChannelById(*message.ChannelId)
+			if channel == nil {
+				chatServer.logger.Debug("cannot find channel")
+			}
+
+			// connect user to channel
+			channel.Connect(*client)
+		case "send":
+			if message.ChannelId == nil {
+				chatServer.logger.Error("missing channel id")
+			}
+
+			chatServer.broadcast <- message
+		}
 	}
 }
 
